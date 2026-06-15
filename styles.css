@@ -15,9 +15,9 @@ body {
     background-color: #111827;
     padding: 35px 25px;
     border-radius: 20px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
     text-align: center;
-    max-width: 440px;
+    max-width: 460px;
     width: 100%;
     border: 1px solid #1f2937;
 }
@@ -25,35 +25,73 @@ body {
 h1 {
     color: #00ff88;
     margin: 0 0 5px 0;
-    font-size: 24px;
+    font-size: 22px;
     letter-spacing: 0.5px;
 }
 
 .subtitle {
     color: #94a3b8;
-    font-size: 13px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 30px;
+    margin-bottom: 25px;
+}
+
+/* Panel de Dispositivos de Audio */
+.hardware-panel {
+    background-color: #1f2937;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 20px;
+    text-align: left;
+    border: 1px solid #374151;
+}
+
+.input-group {
+    margin-bottom: 12px;
+}
+.input-group:last-child { margin-bottom: 0; }
+
+.input-group label {
+    display: block;
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.hardware-panel select {
+    width: 100%;
+    background-color: #090d16;
+    color: #f1f5f9;
+    border: 1px solid #4b5563;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+}
+.hardware-panel select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .status-badge {
-    margin: 20px 0;
-    padding: 14px;
+    margin-bottom: 20px;
+    padding: 12px;
     border-radius: 10px;
-    background-color: #1f2937;
+    background-color: #111827;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
     border: 1px solid #374151;
     color: #94a3b8;
-    transition: all 0.4s ease;
 }
 
 .vumeter-box {
     height: 8px;
     background-color: #1f2937;
     border-radius: 4px;
-    margin: 25px 0;
+    margin-bottom: 20px;
     overflow: hidden;
     display: flex;
 }
@@ -69,30 +107,26 @@ h1 {
     background-color: #00ff88;
     color: #090d16;
     border: none;
-    padding: 16px 32px;
-    font-size: 16px;
+    padding: 16px;
+    font-size: 15px;
     font-weight: 700;
     border-radius: 10px;
     cursor: pointer;
-    transition: background 0.2s, transform 0.1s;
     width: 100%;
-    box-shadow: 0 4px 14px rgba(0, 255, 136, 0.3);
+    box-shadow: 0 4px 14px rgba(0, 255, 136, 0.2);
 }
-
-.action-btn:hover { background-color: #05e67c; }
-.action-btn:active { transform: scale(0.99); }
-.action-btn:disabled { background-color: #374151; color: #6b7280; cursor: not-allowed; box-shadow: none; }
+.action-btn:disabled { background-color: #374151; color: #6b7280; box-shadow: none; cursor:not-allowed; }
 
 .share-panel {
     display: none;
-    margin-top: 30px;
-    padding-top: 25px;
+    margin-top: 25px;
+    padding-top: 20px;
     border-top: 1px solid #1f2937;
 }
 
 .url-box {
     background: #030712;
-    padding: 14px;
+    padding: 12px;
     border-radius: 8px;
     margin-bottom: 12px;
     font-family: monospace;
@@ -106,11 +140,9 @@ h1 {
     background-color: transparent;
     color: #94a3b8;
     border: 1px solid #374151;
-    padding: 12px;
+    padding: 10px;
     border-radius: 8px;
     cursor: pointer;
-    font-weight: 500;
     width: 100%;
-    transition: background 0.2s, color 0.2s;
 }
 .secondary-btn:hover { background-color: #1f2937; color: #ffffff; }
