@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Audio HD - Transmisión P2P</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="header">
+        <h1>🎙️ BROADCAST HD</h1>
+        <div class="subtitle">Unidad Móvil Punto a Punto (WebRTC)</div>
+    </div>
+    
+    <div id="status" class="status-badge">Iniciando componentes...</div>
+    
+    <div class="vumeter-box">
+        <div id="vumeter" class="vumeter-bar"></div>
+    </div>
+
+    <button id="start-btn" class="action-btn" disabled>1. Habilitar Micrófono</button>
+    
+    <div id="share-panel" class="share-panel">
+        <p style="font-size: 13px; color: #94a3b8; margin: 0 0 10px 0;">Envía este enlace al móvil o receptor remoto:</p>
+        <div id="share-link" class="url-box">Generando enlace seguro...</div>
+        <button id="copy-btn" class="secondary-btn">Copiar Enlace de Invitación</button>
+    </div>
+</div>
+
+<audio id="audio-output" autoplay></audio>
+
+<script>
+    const statusDiv = document.getElementById('status');
+    const startBtn = document.getElementById('start-btn');
+    const sharePanel = document.getElementById('share-panel');
+    const shareLinkDiv = document.getElementById('share-link');
+    const copyBtn = document.getElementById('copy-btn');
+    const vuMeter = document.getElementById('vumeter');
+    const audioOutput = document.getElementById('audio-output');
+
+    let localStream;
+    let peer;
+
+    // Configuración acústica óptima para radio sin compresión celular estándar
+    const mediaConstraints = {
+        audio: {
+            echoCancellation: false,  // Desactivado para evitar voz metalizada
+            noiseSuppression: false,  // Mantiene la fidelidad del entorno o música
+            autoGainControl: false,   // Evita subidas y bajadas digitales automáticas
+            sampleRate: 48000,        // Calidad de estudio (48kHz)
+            channelCount: 1           // Audio Mono dedicado a transmisión de voz limpia
+        },
+        video: false
+    };
+
+    // Inicializamos PeerJS apuntando a su infraestructura en la nube (Gratuito y Directo)
+    peer = new Peer(generateRandomId(), {
+        debug: 1
+    });
+
+    peer.on('open', (id) => {
+        statusDiv.innerText = "🟢 Sistema Listo. Esperando acción.";
+        statusDiv.style.borderColor = "#00ff88";
+        statusDiv.style.color = "#00ff88";
+        startBtn.disabled = false;
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connect')) {
+            startBtn.innerText = "Conectar con el Estudio";
+            startBtn.style.backgroundColor = "#38bdf8";
+        }
+    });
+
+    peer.on('error', (err) => {
+        console.error(err);
+        statusDiv.innerText = "❌ Error de Red: " + err.type;
+        statusDiv.style.borderColor = "#ff3333";
+        statusDiv.style.color = "#ff3333";
+    });
+
+    startBtn.addEventListener('click', async () => {
+        try {
+            statusDiv.innerText = "🎙️ Accediendo al hardware de audio...";
+            localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+            
+            startBtn.disabled = true;
+            startBtn.innerText = "🎤 Micrófono Activo";
+            startBtn.style.backgroundColor = "#1e293b";
+            startBtn.style.color = "#64748b";
+
+            // Iniciar animación del VU-metro analizando las frecuencias capturadas
+            activateVUMeter(localStream);
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetPeerId = urlParams.get('connect');
+
+            if (targetPeerId) {
+                // MODO MÓVIL (Remoto): Llama de inmediato al estudio al pulsar el botón
+                statusDiv.innerText = "🚀 Transmitiendo audio directo al estudio...";
+                const call = peer.call(targetPeerId, localStream);
+                setupCallHandlers(call);
+            } else {
+                // MODO ESTUDIO (Receptor): Abre la línea para recibir conexiones entrantes
+                statusDiv.innerText = "📡 Esperando señal remota...";
+                const cleanUrl = window.location.href.split('?')[0];
+                const inviteLink = `${cleanUrl}?connect=${peer.id}`;
+                shareLinkDiv.innerText = inviteLink;
+                sharePanel.style.display = "block";
+            }
+        } catch (err) {
+            console.error(err);
+            statusDiv.innerText = "❌ Error: Permiso de micrófono denegado.";
+            statusDiv.style.borderColor = "#ff3333";
+        }
+    });
+
+    // Escuchar llamadas entrantes de las unidades móviles
+    peer.on('call', (call) => {
+        statusDiv.innerText = "📞 Enlace entrante detectado...";
+        // Respondemos enviando nuestro flujo local para comunicación bidireccional
+        call.answer(localStream);
+        setupCallHandlers(call);
+    });
+
+    function setupCallHandlers(call) {
+        call.on('stream', (remoteStream) => {
+            statusDiv.innerText = "🔴 TRANSMITIENDO EN VIVO (P2P HD)";
+            statusDiv.style.backgroundColor = "#7f1d1d";
+            statusDiv.style.borderColor = "#ef4444";
+            statusDiv.style.color = "#ffffff";
+            
+            // Inyectar el flujo de audio recibido al tag de salida
+            audioOutput.srcObject = remoteStream;
+        });
+
+        call.on('close', () => {
+            statusDiv.innerText = "🟡 Conexión finalizada por el extremo remoto.";
+            statusDiv.style.backgroundColor = "#1e293b";
+            statusDiv.style.borderColor = "#334155";
+        });
+    }
+
+    function generateRandomId() {
+        return 'broadcast-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    // Lógica del VU-Metro Analizador
+    function activateVUMeter(stream) {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        function draw() {
+            if (!localStream) return;
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) { sum += dataArray[i]; }
+            let average = sum / bufferLength;
+            
+            vuMeter.style.width = Math.min(100, (average * 2.5)) + "%";
+            requestAnimationFrame(draw);
+        }
+        draw();
+    }
+
+    // Copiado rápido al portapapeles
+    copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(shareLinkDiv.innerText);
+        copyBtn.innerText = "¡Copiado Exitosamente!";
+        setTimeout(() => copyBtn.innerText = "Copiar Enlace de Invitación", 2000);
+    });
+</script>
+
+</body>
+</html>
