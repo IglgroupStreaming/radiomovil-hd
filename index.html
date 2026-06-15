@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control de Audio HD - Transmisión P2P</title>
+    <title>Intercom HD - Audio Bidireccional P2P</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
@@ -11,26 +11,41 @@
 
 <div class="app-container">
     <div class="header">
-        <h1>🎙️ BROADCAST HD</h1>
-        <div class="subtitle">Unidad Móvil Punto a Punto (WebRTC)</div>
+        <h1>🎙️ INTERCOM BI-DIRECCIONAL HD</h1>
+        <div class="subtitle">Retorno de Audio Profesional en Tiempo Real</div>
     </div>
     
-    <div id="status" class="status-badge">Iniciando componentes...</div>
+    <div id="status" class="status-badge">Esperando configuración de hardware...</div>
     
+    <div class="hardware-panel">
+        <div class="input-group">
+            <label for="mic-select">🎤 Entrada (Micrófono / Consola):</label>
+            <select id="mic-select"></select>
+        </div>
+        
+        <div class="input-group" id="speaker-group">
+            <label for="speaker-select">🎧 Salida (Auriculares / Monitor):</label>
+            <select id="speaker-select"></select>
+            <small id="speaker-warning" style="display:none; color: #fbbf24; font-size:11px; margin-top:4px;">
+                * Selección de salida solo soportada en Chrome/Edge de computadora.
+            </small>
+        </div>
+    </div>
+
     <div class="vumeter-box">
         <div id="vumeter" class="vumeter-bar"></div>
     </div>
 
-    <button id="start-btn" class="action-btn" disabled>1. Habilitar Micrófono</button>
+    <button id="start-btn" class="action-btn">Conectar Audio</button>
     
     <div id="share-panel" class="share-panel">
-        <p style="font-size: 13px; color: #94a3b8; margin: 0 0 10px 0;">Envía este enlace al móvil o receptor remoto:</p>
-        <div id="share-link" class="url-box">Generando enlace seguro...</div>
-        <button id="copy-btn" class="secondary-btn">Copiar Enlace de Invitación</button>
+        <p style="font-size: 13px; color: #94a3b8; margin: 0 0 10px 0;">Envía este enlace al punto remoto para iniciar el retorno:</p>
+        <div id="share-link" class="url-box">Generando enlace de intercom...</div>
+        <button id="copy-btn" class="secondary-btn">Copiar Enlace de Intercom</button>
     </div>
 </div>
 
-<audio id="audio-output" autoplay></audio>
+<audio id="audio-output" autoplay style="display:none;"></audio>
 
 <script>
     const statusDiv = document.getElementById('status');
@@ -40,114 +55,179 @@
     const copyBtn = document.getElementById('copy-btn');
     const vuMeter = document.getElementById('vumeter');
     const audioOutput = document.getElementById('audio-output');
+    
+    const micSelect = document.getElementById('mic-select');
+    const speakerSelect = document.getElementById('speaker-select');
+    const speakerGroup = document.getElementById('speaker-group');
 
     let localStream;
     let peer;
+    let currentCall = null;
 
-    // Configuración acústica óptima para radio sin compresión celular estándar
-    const mediaConstraints = {
-        audio: {
-            echoCancellation: false,  // Desactivado para evitar voz metalizada
-            noiseSuppression: false,  // Mantiene la fidelidad del entorno o música
-            autoGainControl: false,   // Evita subidas y bajadas digitales automáticas
-            sampleRate: 48000,        // Calidad de estudio (48kHz)
-            channelCount: 1           // Audio Mono dedicado a transmisión de voz limpia
-        },
-        video: false
-    };
+    // 1. Permisos iniciales y escaneo de hardware de audio
+    async function initHardware() {
+        try {
+            // Forzamos un permiso rápido para poder leer los nombres de las tarjetas de sonido
+            const initialStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            initialStream.getTracks().forEach(track => track.stop()); // Apagamos temporalmente
+            
+            await refreshDeviceList();
+            statusDiv.innerText = "🟢 Hardware detectado. Elige tus vías y conecta.";
+            statusDiv.style.borderColor = "#00ff88";
+            statusDiv.style.color = "#00ff88";
+        } catch (err) {
+            statusDiv.innerText = "❌ Error: Se requiere permiso de micrófono.";
+            statusDiv.style.borderColor = "#ef4444";
+        }
+    }
 
-    // Inicializamos PeerJS apuntando a su infraestructura en la nube (Gratuito y Directo)
-    peer = new Peer(generateRandomId(), {
-        debug: 1
-    });
-
-    peer.on('open', (id) => {
-        statusDiv.innerText = "🟢 Sistema Listo. Esperando acción.";
-        statusDiv.style.borderColor = "#00ff88";
-        statusDiv.style.color = "#00ff88";
-        startBtn.disabled = false;
+    async function refreshDeviceList() {
+        const devices = await navigator.mediaDevices.enumerateDevices();
         
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('connect')) {
-            startBtn.innerText = "Conectar con el Estudio";
-            startBtn.style.backgroundColor = "#38bdf8";
+        micSelect.innerHTML = '';
+        speakerSelect.innerHTML = '';
+
+        let hasSpeakerSelection = 'setSinkId' in HTMLMediaElement.prototype;
+        if (!hasSpeakerSelection) {
+            document.getElementById('speaker-warning').style.display = 'block';
+        }
+
+        devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            
+            if (device.kind === 'audioinput') {
+                option.text = device.label || `Micrófono Desconocido (${device.deviceId.slice(0,5)})`;
+                micSelect.appendChild(option);
+            } else if (device.kind === 'audiooutput' && hasSpeakerSelection) {
+                option.text = device.label || `Altavoz Desconocido (${device.deviceId.slice(0,5)})`;
+                speakerSelect.appendChild(option);
+            }
+        });
+    }
+
+    // Cambiar la salida de audio dinámicamente si el navegador lo soporta (API setSinkId)
+    speakerSelect.addEventListener('change', async () => {
+        if (audioOutput.setSinkId) {
+            try {
+                await audioOutput.setSinkId(speakerSelect.value);
+                console.log(`Audio ruteado exitosamente a: ${speakerSelect.value}`);
+            } catch (err) {
+                console.error("No se pudo cambiar el dispositivo de salida:", err);
+            }
         }
     });
 
-    peer.on('error', (err) => {
-        console.error(err);
-        statusDiv.innerText = "❌ Error de Red: " + err.type;
-        statusDiv.style.borderColor = "#ff3333";
-        statusDiv.style.color = "#ff3333";
+    // 2. Inicialización de PeerJS (Nube P2P global)
+    peer = new Peer(generateRandomId(), { debug: 1 });
+
+    peer.on('open', (id) => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connect')) {
+            startBtn.innerText = "Establecer Doble Vía con Estudio";
+            startBtn.style.backgroundColor = "#38bdf8";
+        }
+        initHardware();
     });
 
+    // 3. Configuración y disparo de la comunicación
     startBtn.addEventListener('click', async () => {
         try {
-            statusDiv.innerText = "🎙️ Accediendo al hardware de audio...";
+            // Configuración de audio HD apuntando al micrófono específico seleccionado
+            const selectedMicId = micSelect.value;
+            const mediaConstraints = {
+                audio: {
+                    deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
+                    echoCancellation: false, 
+                    noiseSuppression: false,  
+                    autoGainControl: false,   
+                    sampleRate: 48000,        
+                    channelCount: 1           
+                },
+                video: false
+            };
+
             localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
             
+            // Bloqueamos selectores durante la transmisión activa para evitar caídas
+            micSelect.disabled = true;
             startBtn.disabled = true;
-            startBtn.innerText = "🎤 Micrófono Activo";
+            startBtn.innerText = "🎤 Transmisión Activa";
             startBtn.style.backgroundColor = "#1e293b";
             startBtn.style.color = "#64748b";
 
-            // Iniciar animación del VU-metro analizando las frecuencias capturadas
             activateVUMeter(localStream);
 
             const urlParams = new URLSearchParams(window.location.search);
             const targetPeerId = urlParams.get('connect');
 
             if (targetPeerId) {
-                // MODO MÓVIL (Remoto): Llama de inmediato al estudio al pulsar el botón
-                statusDiv.innerText = "🚀 Transmitiendo audio directo al estudio...";
+                // MODO MÓVIL/RECONEXIÓN: Llama e inicia el envío bidireccional
+                statusDiv.innerText = "🚀 Abriendo canal full-duplex hacia el estudio...";
                 const call = peer.call(targetPeerId, localStream);
                 setupCallHandlers(call);
             } else {
-                // MODO ESTUDIO (Receptor): Abre la línea para recibir conexiones entrantes
-                statusDiv.innerText = "📡 Esperando señal remota...";
+                // MODO ESTUDIO PRINCIPAL: Espera la llamada remota
+                statusDiv.innerText = "📡 Esperando que el punto remoto abra el enlace...";
                 const cleanUrl = window.location.href.split('?')[0];
-                const inviteLink = `${cleanUrl}?connect=${peer.id}`;
-                shareLinkDiv.innerText = inviteLink;
+                shareLinkDiv.innerText = `${cleanUrl}?connect=${peer.id}`;
                 sharePanel.style.display = "block";
             }
         } catch (err) {
             console.error(err);
-            statusDiv.innerText = "❌ Error: Permiso de micrófono denegado.";
-            statusDiv.style.borderColor = "#ff3333";
+            statusDiv.innerText = "❌ Error al enganchar los dispositivos de audio.";
         }
     });
 
-    // Escuchar llamadas entrantes de las unidades móviles
+    // Escuchar llamadas entrantes (El receptor responde automáticamente enviando su propio micrófono)
     peer.on('call', (call) => {
-        statusDiv.innerText = "📞 Enlace entrante detectado...";
-        // Respondemos enviando nuestro flujo local para comunicación bidireccional
-        call.answer(localStream);
-        setupCallHandlers(call);
+        statusDiv.innerText = "📞 Enlace remoto detectado. Respondiendo audio...";
+        
+        if (localStream) {
+            call.answer(localStream);
+            setupCallHandlers(call);
+        } else {
+            // Si el estudio no activó su botón aún, fuerza captura con el dispositivo actual del select
+            const selectedMicId = micSelect.value;
+            navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined, echoCancellation: false }
+            }).then(stream => {
+                localStream = stream;
+                activateVUMeter(localStream);
+                call.answer(localStream);
+                setupCallHandlers(call);
+            });
+        }
     });
 
     function setupCallHandlers(call) {
-        call.on('stream', (remoteStream) => {
-            statusDiv.innerText = "🔴 TRANSMITIENDO EN VIVO (P2P HD)";
+        currentCall = call;
+        call.on('stream', async (remoteStream) => {
+            statusDiv.innerText = "🔴 EN VIVO - COMUNICACIÓN BIDIRECCIONAL";
             statusDiv.style.backgroundColor = "#7f1d1d";
             statusDiv.style.borderColor = "#ef4444";
             statusDiv.style.color = "#ffffff";
             
-            // Inyectar el flujo de audio recibido al tag de salida
             audioOutput.srcObject = remoteStream;
+
+            // Asegurar que la salida respete el altavoz/interfaz elegida
+            if (audioOutput.setSinkId && speakerSelect.value) {
+                try { await audioOutput.setSinkId(speakerSelect.value); } catch(e){}
+            }
         });
 
         call.on('close', () => {
-            statusDiv.innerText = "🟡 Conexión finalizada por el extremo remoto.";
+            statusDiv.innerText = "🟡 Conexión remota caída o cerrada.";
             statusDiv.style.backgroundColor = "#1e293b";
             statusDiv.style.borderColor = "#334155";
+            micSelect.disabled = false;
         });
     }
 
     function generateRandomId() {
-        return 'broadcast-' + Math.random().toString(36).substr(2, 9);
+        return 'intercom-' + Math.random().toString(36).substr(2, 9);
     }
 
-    // Lógica del VU-Metro Analizador
     function activateVUMeter(stream) {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
@@ -164,18 +244,16 @@
             let sum = 0;
             for (let i = 0; i < bufferLength; i++) { sum += dataArray[i]; }
             let average = sum / bufferLength;
-            
             vuMeter.style.width = Math.min(100, (average * 2.5)) + "%";
             requestAnimationFrame(draw);
         }
         draw();
     }
 
-    // Copiado rápido al portapapeles
     copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(shareLinkDiv.innerText);
-        copyBtn.innerText = "¡Copiado Exitosamente!";
-        setTimeout(() => copyBtn.innerText = "Copiar Enlace de Invitación", 2000);
+        copyBtn.innerText = "¡Copiado!";
+        setTimeout(() => copyBtn.innerText = "Copiar Enlace de Intercom", 2000);
     });
 </script>
 
